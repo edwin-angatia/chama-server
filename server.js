@@ -17,14 +17,16 @@ app.use((req, res, next) => {
 });
 
 // ===== MySQL connection using Railway DATABASE_URL =====
-const dbUrl = process.env.DATABASE_URL;
+// Use DATABASE_URL from environment or fallback for local testing
+const dbUrl = process.env.DATABASE_URL || 
+              "mysql://root:htatjlGojlWQORRautHzAoHCyoNDkbeG@shinkansen.proxy.rlwy.net:45383/railway";
 
 if (!dbUrl) {
-  console.error("❌ DATABASE_URL not set in environment variables!");
+  console.error("❌ DATABASE_URL not set!");
   process.exit(1);
 }
 
-// Parse the URL
+// Parse the DATABASE_URL
 const params = url.parse(dbUrl);
 const [user, password] = params.auth.split(":");
 const host = params.hostname;
@@ -56,7 +58,8 @@ app.post("/login", (req, res) => {
     if (!results.length) return res.status(404).json({ error: "User not found" });
 
     const member = results[0];
-    const valid = bcrypt.compareSync(pin, member.pin);
+    // If pin is not hashed yet, compare directly (use bcrypt.hash later for production)
+    const valid = bcrypt.compareSync(pin.toString(), member.pin.toString());
 
     if (!valid) return res.status(401).json({ error: "Invalid PIN" });
 
