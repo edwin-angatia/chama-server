@@ -1,7 +1,7 @@
 // server.js
 const express = require("express");
 const bodyParser = require("body-parser");
-const mysql = require("mysql");
+const mysql = require("mysql2");
 const bcrypt = require("bcrypt");
 const cors = require("cors");
 const url = require("url");
