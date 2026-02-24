@@ -1,9 +1,10 @@
 // server.js
 const express = require("express");
 const bodyParser = require("body-parser");
-const mysql = require("mysql2");
+const mysql = require("mysql");
 const bcrypt = require("bcrypt");
 const cors = require("cors");
+const url = require("url");
 
 const app = express();
 app.use(bodyParser.json({ limit: "10mb" }));
@@ -15,20 +16,35 @@ app.use((req, res, next) => {
   next();
 });
 
-// ===== MySQL connection =====
+// ===== MySQL connection using Railway DATABASE_URL =====
+const dbUrl = process.env.DATABASE_URL;
+
+if (!dbUrl) {
+  console.error("❌ DATABASE_URL not set in environment variables!");
+  process.exit(1);
+}
+
+// Parse the URL
+const params = url.parse(dbUrl);
+const [user, password] = params.auth.split(":");
+const host = params.hostname;
+const database = params.path.replace("/", "");
+const port = params.port;
+
 const db = mysql.createConnection({
-  host: "localhost",
-  user: "root",
-  password: "Mombasa",
-  database: "chama_app"
+  host,
+  user,
+  password,
+  database,
+  port
 });
 
 db.connect(err => {
   if (err) {
-    console.error("❌ MySQL connection error:", err.message);
+    console.error("❌ MySQL connection error:", err);
     process.exit(1);
   }
-  console.log("✅ MySQL connected");
+  console.log("✅ Connected to MySQL (Railway Public)");
 });
 
 // ===== LOGIN =====
@@ -72,10 +88,7 @@ app.get("/member-dashboard/:id", (req, res) => {
         (err3, contribRes) => {
           if (err3) return res.status(500).json({ error: err3.message });
 
-          const total = contribRes.reduce(
-            (sum, c) => sum + parseFloat(c.amount),
-            0
-          );
+          const total = contribRes.reduce((sum, c) => sum + parseFloat(c.amount), 0);
 
           res.json({
             member,
@@ -95,7 +108,7 @@ app.put("/update-member/:id", (req, res) => {
   db.query(
     "UPDATE members SET full_name = ?, phone = ?, photo_url = ? WHERE id = ?",
     [full_name, phone, photo_url, req.params.id],
-    (err) => {
+    err => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ message: "Profile updated successfully" });
     }
@@ -113,7 +126,6 @@ app.get("/all-members", (req, res) => {
     (err, results) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      // Group contributions under each member
       const members = {};
       results.forEach(r => {
         if (!members[r.id]) {
@@ -144,11 +156,11 @@ app.get("/all-members", (req, res) => {
 
 // ===== APPROVE / REJECT CONTRIBUTION =====
 app.post("/approve-contribution/:id", (req, res) => {
-  const { status } = req.body; // "confirmed" or "rejected"
+  const { status } = req.body;
   db.query(
     "UPDATE contributions SET status = ? WHERE id = ?",
     [status, req.params.id],
-    (err) => {
+    err => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ message: "Contribution updated successfully" });
     }
@@ -166,4 +178,5 @@ app.get("/it-support", (req, res) => {
 app.get("/", (req, res) => res.send("API is running..."));
 
 // ===== START SERVER =====
-app.listen(3000, "0.0.0.0", () => console.log("✅ Server running on port 3000"));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, "0.0.0.0", () => console.log(`✅ Server running on port ${PORT}`));
