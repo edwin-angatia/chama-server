@@ -59,7 +59,7 @@ app.post("/login", (req, res) => {
 
     const member = results[0];
     // If pin is not hashed yet, compare directly (use bcrypt.hash later for production)
-    const valid = bcrypt.compareSync(pin.toString(), member.pin.toString());
+    const valid = pin.toString() === member.pin.toString();
 
     if (!valid) return res.status(401).json({ error: "Invalid PIN" });
 
