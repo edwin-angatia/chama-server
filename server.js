@@ -71,6 +71,51 @@ app.post("/login", (req, res) => {
   });
 });
 
+// =============================
+// BIOMETRIC LOGIN ROUTE
+// =============================
+app.post("/biometric-login", async (req, res) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({
+        error: "Phone number is required"
+      });
+    }
+
+    // 🔍 Find member by phone
+    const [rows] = await db.query(
+      "SELECT * FROM members WHERE phone = ?",
+      [phone]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        error: "Member not found"
+      });
+    }
+
+    const member = rows[0];
+
+    // 🔐 OPTIONAL SECURITY CHECK
+    if (member.biometric_enabled !== 1) {
+      return res.status(403).json({
+        error: "Biometric login not enabled"
+      });
+    }
+
+    // ✅ SUCCESS → return member data
+    res.json(member);
+
+  } catch (error) {
+    console.error("Biometric login error:", error);
+    res.status(500).json({
+      error: "Server error"
+    });
+  }
+});
+
 // ===== MEMBER DASHBOARD =====
 app.get("/member-dashboard/:id", (req, res) => {
   const memberId = req.params.id;
