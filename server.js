@@ -2,7 +2,6 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const mysql = require("mysql2");
-const bcrypt = require("bcrypt");
 const cors = require("cors");
 const url = require("url");
 
@@ -16,10 +15,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// ===== MySQL connection using Railway DATABASE_URL =====
-// Use DATABASE_URL from environment or fallback for local testing
+// ===== MySQL connection using DATABASE_URL =====
 const dbUrl = process.env.DATABASE_URL || 
-              "mysql://root:htatjlGojlWQORRautHzAoHCyoNDkbeG@shinkansen.proxy.rlwy.net:45383/railway";
+  "mysql://root:htatjlGojlWQORRautHzAoHCyoNDkbeG@shinkansen.proxy.rlwy.net:45383/railway";
 
 if (!dbUrl) {
   console.error("❌ DATABASE_URL not set!");
@@ -53,12 +51,13 @@ db.connect(err => {
 app.post("/login", (req, res) => {
   const { phone, pin } = req.body;
 
+  if (!phone || !pin) return res.status(400).json({ error: "Phone and PIN required" });
+
   db.query("SELECT * FROM members WHERE phone = ?", [phone], (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!results.length) return res.status(404).json({ error: "User not found" });
 
     const member = results[0];
-    // If pin is not hashed yet, compare directly (use bcrypt.hash later for production)
     const valid = pin.toString() === member.pin.toString();
 
     if (!valid) return res.status(401).json({ error: "Invalid PIN" });
@@ -71,49 +70,38 @@ app.post("/login", (req, res) => {
   });
 });
 
-// =============================
-// BIOMETRIC LOGIN ROUTE
-// =============================
-app.post("/biometric-login", async (req, res) => {
-  try {
-    const { phone } = req.body;
+// ===== BIOMETRIC LOGIN =====
+app.post("/biometric-login", (req, res) => {
+  const { phone } = req.body;
+  if (!phone) return res.status(400).json({ error: "Phone is required" });
 
-    if (!phone) {
-      return res.status(400).json({
-        error: "Phone number is required"
-      });
-    }
+  db.query("SELECT * FROM members WHERE phone = ?", [phone], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!results.length) return res.status(404).json({ error: "Member not found" });
 
-    // 🔍 Find member by phone
-    const [rows] = await db.query(
-      "SELECT * FROM members WHERE phone = ?",
-      [phone]
-    );
-
-    if (rows.length === 0) {
-      return res.status(404).json({
-        error: "Member not found"
-      });
-    }
-
-    const member = rows[0];
-
-    // 🔐 OPTIONAL SECURITY CHECK
+    const member = results[0];
     if (member.biometric_enabled !== 1) {
-      return res.status(403).json({
-        error: "Biometric login not enabled"
-      });
+      return res.status(403).json({ error: "Biometric login not enabled" });
     }
 
-    // ✅ SUCCESS → return member data
     res.json(member);
+  });
+});
 
-  } catch (error) {
-    console.error("Biometric login error:", error);
-    res.status(500).json({
-      error: "Server error"
+// ===== CHANGE PIN =====
+app.post("/change-pin", (req, res) => {
+  const { member_id, old_pin, new_pin } = req.body;
+  if (!member_id || !old_pin || !new_pin) return res.status(400).json({ error: "Missing fields" });
+
+  db.query("SELECT * FROM members WHERE id = ? AND pin = ?", [member_id, old_pin], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!results.length) return res.status(401).json({ error: "Old PIN incorrect" });
+
+    db.query("UPDATE members SET pin = ? WHERE id = ?", [new_pin, member_id], err2 => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ message: "PIN updated successfully" });
     });
-  }
+  });
 });
 
 // ===== MEMBER DASHBOARD =====
@@ -130,22 +118,18 @@ app.get("/member-dashboard/:id", (req, res) => {
       if (err2) return res.status(500).json({ error: err2.message });
       const chama = chamaRes[0];
 
-      db.query(
-        "SELECT * FROM contributions WHERE member_id = ? ORDER BY created_at DESC",
-        [memberId],
-        (err3, contribRes) => {
-          if (err3) return res.status(500).json({ error: err3.message });
+      db.query("SELECT * FROM contributions WHERE member_id = ? ORDER BY created_at DESC", [memberId], (err3, contribRes) => {
+        if (err3) return res.status(500).json({ error: err3.message });
 
-          const total = contribRes.reduce((sum, c) => sum + parseFloat(c.amount), 0);
+        const total = contribRes.reduce((sum, c) => sum + parseFloat(c.amount), 0);
 
-          res.json({
-            member,
-            chama,
-            total_contributions: total.toFixed(2),
-            history: contribRes
-          });
-        }
-      );
+        res.json({
+          member,
+          chama,
+          total_contributions: total.toFixed(2),
+          history: contribRes
+        });
+      });
     });
   });
 });
@@ -205,20 +189,16 @@ app.get("/all-members", (req, res) => {
 // ===== APPROVE / REJECT CONTRIBUTION =====
 app.post("/approve-contribution/:id", (req, res) => {
   const { status } = req.body;
-  db.query(
-    "UPDATE contributions SET status = ? WHERE id = ?",
-    [status, req.params.id],
-    err => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ message: "Contribution updated successfully" });
-    }
-  );
+  db.query("UPDATE contributions SET status = ? WHERE id = ?", [status, req.params.id], err => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: "Contribution updated successfully" });
+  });
 });
 
 // ===== IT SUPPORT =====
 app.get("/it-support", (req, res) => {
   const phone = "254788488881";
-  const message = encodeURIComponent("Hello IT, I need your assistance");
+  const message = encodeURIComponent("Assalaamu Aleykum!");
   res.json({ whatsapp_url: `https://wa.me/${phone}?text=${message}` });
 });
 
