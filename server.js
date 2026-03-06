@@ -43,9 +43,10 @@ app.post("/login", async (req, res) => {
   const normalizedPhone = phone.slice(-9);
 
   try {
-    const [rows] = await db
-      .promise()
-      .query("SELECT * FROM members WHERE RIGHT(phone,9)=?", [normalizedPhone]);
+    const [rows] = await db.promise().query(
+      "SELECT * FROM members WHERE RIGHT(phone,9)=?",
+      [normalizedPhone]
+    );
 
     if (!rows.length) {
       return res.status(404).json({ error: "User not found" });
@@ -53,7 +54,16 @@ app.post("/login", async (req, res) => {
 
     const member = rows[0];
 
-    const valid = await bcrypt.compare(pin.toString(), member.pin.toString());
+    let valid = false;
+
+    // if stored pin is hashed
+    if (member.pin.startsWith("$2")) {
+      valid = await bcrypt.compare(pin.toString(), member.pin);
+    } 
+    // if stored pin is plain
+    else {
+      valid = pin.toString() === member.pin.toString();
+    }
 
     if (!valid) {
       return res.status(401).json({ error: "Invalid PIN" });
@@ -62,10 +72,11 @@ app.post("/login", async (req, res) => {
     res.json({
       member_id: member.id,
       name: member.full_name,
-      is_admin: member.is_admin,
+      is_admin: member.is_admin
     });
+
   } catch (err) {
-    console.error(err);
+    console.error("Login error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
