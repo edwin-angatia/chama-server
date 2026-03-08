@@ -181,6 +181,63 @@ app.post("/approve-contribution/:id", async (req, res) => {
   }
 });
 
+app.get("/member-contributions/:member_id", async (req, res) => {
+  const { member_id } = req.params;
+
+  try {
+    const [monthly] = await db.query(
+      `SELECT SUM(amount) as total FROM contributions 
+       WHERE member_id = ? 
+       AND contribution_type = 'monthly' 
+       AND status = 'approved'`,
+      [member_id]
+    );
+
+    const [emergency] = await db.query(
+      `SELECT SUM(amount) as total FROM contributions 
+       WHERE member_id = ? 
+       AND contribution_type = 'emergency' 
+       AND status = 'approved'`,
+      [member_id]
+    );
+
+    res.json({
+      monthly_total: monthly[0].total || 0,
+      emergency_total: emergency[0].total || 0
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch contributions" });
+  }
+});
+
+app.post("/add-contribution", async (req, res) => {
+
+  const {
+    member_id,
+    amount,
+    contribution_type,
+    payment_method
+  } = req.body;
+
+  try {
+
+    await db.query(
+      `INSERT INTO contributions 
+      (member_id, amount, contribution_type, transaction_code, payment_method, status)
+      VALUES (?, ?, ?, 'admin', ?, 'approved')`,
+      [member_id, amount, contribution_type, payment_method]
+    );
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Insert failed" });
+  }
+});
+
 // ===== ANNOUNCEMENTS =====
 app.get("/announcements", async (req, res) => {
   try {
@@ -203,6 +260,42 @@ app.get("/health-contents", async (req, res) => {
   } catch (err) {
     res.json([]);
   }
+});
+
+app.get("/member-contributions/:member_id", async (req, res) => {
+
+  const member_id = req.params.member_id;
+
+  try {
+
+    const [monthly] = await db.query(`
+      SELECT SUM(amount) AS total
+      FROM contributions
+      WHERE member_id = ?
+      AND contribution_type = 'monthly'
+      AND status = 'approved'
+    `, [member_id]);
+
+    const [emergency] = await db.query(`
+      SELECT SUM(amount) AS total
+      FROM contributions
+      WHERE member_id = ?
+      AND contribution_type = 'emergency'
+      AND status = 'approved'
+    `, [member_id]);
+
+    res.json({
+      monthly_total: monthly[0].total || 0,
+      emergency_total: emergency[0].total || 0
+    });
+
+  } catch (error) {
+
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch contributions" });
+
+  }
+
 });
 
 // ===== START SERVER =====
