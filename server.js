@@ -56,12 +56,9 @@ app.post("/login", async (req, res) => {
 
     let valid = false;
 
-    // if stored pin is hashed
     if (member.pin.startsWith("$2")) {
       valid = await bcrypt.compare(pin.toString(), member.pin);
-    } 
-    // if stored pin is plain
-    else {
+    } else {
       valid = pin.toString() === member.pin.toString();
     }
 
@@ -99,7 +96,6 @@ app.get("/all-members", async (req, res) => {
            ORDER BY created_at DESC`,
           [m.id]
         );
-
         m.contributions = contribs;
       } catch (e) {
         console.log("⚠ contributions table missing or error");
@@ -181,57 +177,51 @@ app.post("/approve-contribution/:id", async (req, res) => {
   }
 });
 
+// ===== MEMBER CONTRIBUTIONS =====
 app.get("/member-contributions/:member_id", async (req, res) => {
-  const { member_id } = req.params;
+  const member_id = req.params.member_id;
 
   try {
-    const [monthly] = await db.query(
-      `SELECT SUM(amount) as total FROM contributions 
-       WHERE member_id = ? 
-       AND contribution_type = 'monthly' 
-       AND status = 'approved'`,
-      [member_id]
-    );
+    const [monthly] = await db.promise().query(`
+      SELECT SUM(amount) AS total
+      FROM contributions
+      WHERE member_id = ?
+      AND contribution_type = 'monthly'
+      AND status = 'approved'
+    `, [member_id]);
 
-    const [emergency] = await db.query(
-      `SELECT SUM(amount) as total FROM contributions 
-       WHERE member_id = ? 
-       AND contribution_type = 'emergency' 
-       AND status = 'approved'`,
-      [member_id]
-    );
+    const [emergency] = await db.promise().query(`
+      SELECT SUM(amount) AS total
+      FROM contributions
+      WHERE member_id = ?
+      AND contribution_type = 'emergency'
+      AND status = 'approved'
+    `, [member_id]);
 
     res.json({
       monthly_total: monthly[0].total || 0,
       emergency_total: emergency[0].total || 0
     });
 
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error("Contributions fetch error:", error);
     res.status(500).json({ error: "Failed to fetch contributions" });
   }
 });
 
+// ===== ADD CONTRIBUTION =====
 app.post("/add-contribution", async (req, res) => {
-
-  const {
-    member_id,
-    amount,
-    contribution_type,
-    payment_method
-  } = req.body;
+  const { member_id, amount, contribution_type, payment_method } = req.body;
 
   try {
-
-    await db.query(
+    await db.promise().query(
       `INSERT INTO contributions 
-      (member_id, amount, contribution_type, transaction_code, payment_method, status)
-      VALUES (?, ?, ?, 'admin', ?, 'approved')`,
+       (member_id, amount, contribution_type, transaction_code, payment_method, status)
+       VALUES (?, ?, ?, 'admin', ?, 'approved')`,
       [member_id, amount, contribution_type, payment_method]
     );
 
     res.json({ success: true });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Insert failed" });
@@ -260,42 +250,6 @@ app.get("/health-contents", async (req, res) => {
   } catch (err) {
     res.json([]);
   }
-});
-
-app.get("/member-contributions/:member_id", async (req, res) => {
-
-  const member_id = req.params.member_id;
-
-  try {
-
-    const [monthly] = await db.query(`
-      SELECT SUM(amount) AS total
-      FROM contributions
-      WHERE member_id = ?
-      AND contribution_type = 'monthly'
-      AND status = 'approved'
-    `, [member_id]);
-
-    const [emergency] = await db.query(`
-      SELECT SUM(amount) AS total
-      FROM contributions
-      WHERE member_id = ?
-      AND contribution_type = 'emergency'
-      AND status = 'approved'
-    `, [member_id]);
-
-    res.json({
-      monthly_total: monthly[0].total || 0,
-      emergency_total: emergency[0].total || 0
-    });
-
-  } catch (error) {
-
-    console.error(error);
-    res.status(500).json({ error: "Failed to fetch contributions" });
-
-  }
-
 });
 
 // ===== START SERVER =====
