@@ -228,6 +228,68 @@ app.post("/add-contribution", async (req, res) => {
   }
 });
 
+// ===== MARK MONTHLY CONTRIBUTION =====
+app.post("/mark-monthly", async (req, res) => {
+  const { member_id, month, amount = 150 } = req.body; 
+  // default monthly amount = 150
+
+  if (!member_id || !month) {
+    return res.status(400).json({ error: "member_id and month required" });
+  }
+
+  try {
+    const transaction_code = `admin-${member_id}-${month}`;
+
+    // Check if already paid for this month
+    const [exists] = await db.promise().query(
+      `SELECT id FROM contributions
+       WHERE member_id=? AND contribution_type='monthly' AND transaction_code=?`,
+      [member_id, transaction_code]
+    );
+
+    if (exists.length) {
+      return res.json({ message: "Monthly contribution already recorded" });
+    }
+
+    await db.promise().query(
+      `INSERT INTO contributions
+       (member_id, amount, contribution_type, transaction_code, payment_method, status)
+       VALUES (?, ?, 'monthly', ?, 'admin', 'approved')`,
+      [member_id, amount, transaction_code]
+    );
+
+    res.json({ success: true, message: `Monthly contribution marked for ${month}` });
+  } catch (err) {
+    console.error("Mark monthly error:", err);
+    res.status(500).json({ error: "Failed to mark monthly contribution" });
+  }
+});
+
+// ===== ADD EMERGENCY CONTRIBUTION =====
+app.post("/add-emergency", async (req, res) => {
+  const { member_id, amount } = req.body;
+
+  if (!member_id || !amount) {
+    return res.status(400).json({ error: "member_id and amount required" });
+  }
+
+  try {
+    const transaction_code = `admin-emergency-${Date.now()}`;
+
+    await db.promise().query(
+      `INSERT INTO contributions
+       (member_id, amount, contribution_type, transaction_code, payment_method, status)
+       VALUES (?, ?, 'emergency', ?, 'admin', 'approved')`,
+      [member_id, amount, transaction_code]
+    );
+
+    res.json({ success: true, message: `Emergency contribution of Ksh ${amount} added` });
+  } catch (err) {
+    console.error("Add emergency error:", err);
+    res.status(500).json({ error: "Failed to add emergency contribution" });
+  }
+});
+
 // ===== ANNOUNCEMENTS =====
 app.get("/announcements", async (req, res) => {
   try {
