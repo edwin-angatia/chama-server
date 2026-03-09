@@ -32,6 +32,7 @@ app.get("/", (req, res) => {
   res.send("✅ Server running");
 });
 
+
 // ===== LOGIN =====
 app.post("/login", async (req, res) => {
   const { phone, pin } = req.body;
@@ -78,9 +79,11 @@ app.post("/login", async (req, res) => {
   }
 });
 
+
 // ===== GET ALL MEMBERS =====
 app.get("/all-members", async (req, res) => {
   try {
+
     const [members] = await db.promise().query(`
       SELECT id, full_name, phone, is_admin
       FROM members
@@ -88,100 +91,35 @@ app.get("/all-members", async (req, res) => {
     `);
 
     for (let m of members) {
-      try {
-        const [contribs] = await db.promise().query(
-          `SELECT id, amount, payment_method, created_at, status
-           FROM contributions
-           WHERE member_id = ?
-           ORDER BY created_at DESC`,
-          [m.id]
-        );
-        m.contributions = contribs;
-      } catch (e) {
-        console.log("⚠ contributions table missing or error");
-        m.contributions = [];
-      }
+
+      const [contribs] = await db.promise().query(
+        `SELECT id, amount, contribution_type, payment_method, created_at, status
+         FROM contributions
+         WHERE member_id = ?
+         ORDER BY created_at DESC`,
+        [m.id]
+      );
+
+      m.contributions = contribs;
+
     }
 
     res.json(members);
+
   } catch (err) {
     console.error("Members fetch error:", err);
     res.status(500).json({ error: "Failed to fetch members" });
   }
 });
 
-// ===== ADD MEMBER =====
-app.post("/add-member", async (req, res) => {
-  const { full_name, phone, pin, is_admin } = req.body;
 
-  try {
-    const hashedPin = await bcrypt.hash(pin || "0000", 10);
-
-    await db.promise().query(
-      `INSERT INTO members (full_name, phone, pin, approved, is_admin)
-       VALUES (?,?,?,?,?)`,
-      [full_name, phone, hashedPin, 1, is_admin ? 1 : 0]
-    );
-
-    res.json({ message: "Member added" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ===== UPDATE MEMBER =====
-app.put("/update-member/:id", async (req, res) => {
-  const { full_name, phone, is_admin } = req.body;
-
-  try {
-    await db.promise().query(
-      `UPDATE members
-       SET full_name=?, phone=?, is_admin=?
-       WHERE id=?`,
-      [full_name, phone, is_admin ? 1 : 0, req.params.id]
-    );
-
-    res.json({ message: "Member updated" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ===== DELETE MEMBER =====
-app.delete("/delete-member/:id", async (req, res) => {
-  try {
-    await db.promise().query(
-      "DELETE FROM members WHERE id=?",
-      [req.params.id]
-    );
-
-    res.json({ message: "Member deleted" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ===== CONTRIBUTION APPROVAL =====
-app.post("/approve-contribution/:id", async (req, res) => {
-  const { status } = req.body;
-
-  try {
-    await db.promise().query(
-      "UPDATE contributions SET status=? WHERE id=?",
-      [status, req.params.id]
-    );
-
-    res.json({ message: "Contribution updated" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ===== MEMBER CONTRIBUTIONS =====
+// ===== MEMBER CONTRIBUTIONS (USED BY DASHBOARDS) =====
 app.get("/member-contributions/:member_id", async (req, res) => {
+
   const member_id = req.params.member_id;
 
   try {
+
     const [monthly] = await db.promise().query(`
       SELECT SUM(amount) AS total
       FROM contributions
@@ -209,41 +147,26 @@ app.get("/member-contributions/:member_id", async (req, res) => {
   }
 });
 
-// ===== ADD CONTRIBUTION =====
-app.post("/add-contribution", async (req, res) => {
-  const { member_id, amount, contribution_type, payment_method } = req.body;
-
-  try {
-    await db.promise().query(
-      `INSERT INTO contributions 
-       (member_id, amount, contribution_type, transaction_code, payment_method, status)
-       VALUES (?, ?, ?, 'admin', ?, 'approved')`,
-      [member_id, amount, contribution_type, payment_method]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Insert failed" });
-  }
-});
 
 // ===== MARK MONTHLY CONTRIBUTION =====
 app.post("/mark-monthly", async (req, res) => {
-  const { member_id, month, amount = 150 } = req.body; 
-  // default monthly amount = 150
+
+  const { member_id, month, amount = 150 } = req.body;
 
   if (!member_id || !month) {
     return res.status(400).json({ error: "member_id and month required" });
   }
 
   try {
+
     const transaction_code = `admin-${member_id}-${month}`;
 
-    // Check if already paid for this month
+    // prevent duplicates
     const [exists] = await db.promise().query(
       `SELECT id FROM contributions
-       WHERE member_id=? AND contribution_type='monthly' AND transaction_code=?`,
+       WHERE member_id=? 
+       AND contribution_type='monthly'
+       AND transaction_code=?`,
       [member_id, transaction_code]
     );
 
@@ -253,20 +176,84 @@ app.post("/mark-monthly", async (req, res) => {
 
     await db.promise().query(
       `INSERT INTO contributions
-       (member_id, amount, contribution_type, transaction_code, payment_method, status)
-       VALUES (?, ?, 'monthly', ?, 'admin', 'approved')`,
+       (member_id, amount, contribution_type, transaction_code, payment_method, status, created_at)
+       VALUES (?, ?, 'monthly', ?, 'admin', 'approved', NOW())`,
       [member_id, amount, transaction_code]
     );
 
-    res.json({ success: true, message: `Monthly contribution marked for ${month}` });
+    res.json({
+      success: true,
+      message: `Monthly contribution recorded for ${month}`
+    });
+
   } catch (err) {
     console.error("Mark monthly error:", err);
     res.status(500).json({ error: "Failed to mark monthly contribution" });
   }
+
+});
+
+// ===== GENERATE MONTHLY CONTRIBUTIONS FOR ALL MEMBERS =====
+app.post("/generate-monthly", async (req, res) => {
+
+  const { month, amount = 150 } = req.body;
+
+  if (!month) {
+    return res.status(400).json({ error: "month required" });
+  }
+
+  try {
+
+    // get all members
+    const [members] = await db.promise().query(
+      "SELECT id FROM members"
+    );
+
+    let inserted = 0;
+
+    for (const m of members) {
+
+      const transaction_code = `admin-${m.id}-${month}`;
+
+      // check duplicate
+      const [exists] = await db.promise().query(
+        `SELECT id FROM contributions
+         WHERE member_id=? 
+         AND contribution_type='monthly'
+         AND transaction_code=?`,
+        [m.id, transaction_code]
+      );
+
+      if (!exists.length) {
+
+        await db.promise().query(
+          `INSERT INTO contributions
+          (member_id, amount, contribution_type, transaction_code, payment_method, status, created_at)
+          VALUES (?, ?, 'monthly', ?, 'admin', 'approved', NOW())`,
+          [m.id, amount, transaction_code]
+        );
+
+        inserted++;
+
+      }
+
+    }
+
+    res.json({
+      success: true,
+      message: `${inserted} monthly contributions created`
+    });
+
+  } catch (err) {
+    console.error("Generate monthly error:", err);
+    res.status(500).json({ error: "Failed to generate monthly contributions" });
+  }
+
 });
 
 // ===== ADD EMERGENCY CONTRIBUTION =====
 app.post("/add-emergency", async (req, res) => {
+
   const { member_id, amount } = req.body;
 
   if (!member_id || !amount) {
@@ -274,64 +261,32 @@ app.post("/add-emergency", async (req, res) => {
   }
 
   try {
+
     const transaction_code = `admin-emergency-${Date.now()}`;
 
     await db.promise().query(
       `INSERT INTO contributions
-       (member_id, amount, contribution_type, transaction_code, payment_method, status)
-       VALUES (?, ?, 'emergency', ?, 'admin', 'approved')`,
+       (member_id, amount, contribution_type, transaction_code, payment_method, status, created_at)
+       VALUES (?, ?, 'emergency', ?, 'admin', 'admin', 'approved', NOW())`,
       [member_id, amount, transaction_code]
     );
 
-    res.json({ success: true, message: `Emergency contribution of Ksh ${amount} added` });
-  } catch (err) {
-    console.error("Add emergency error:", err);
-    res.status(500).json({ error: "Failed to add emergency contribution" });
-  }
-});
-
-// ===== TOGGLE MONTHLY CONTRIBUTION =====
-app.post("/toggle-monthly", async (req, res) => {
-  const { member_id, month, paid } = req.body;
-
-  if (!member_id || !month || paid === undefined) {
-    return res.status(400).json({ error: "member_id, month, and paid are required" });
-  }
-
-  try {
-    if (paid) {
-      // Add contribution if not exists
-      await db.promise().query(
-        `INSERT INTO contributions
-         (member_id, amount, contribution_type, transaction_code, payment_method, status, created_at)
-         SELECT ?, 150, 'monthly', 'admin', 'admin', 'approved', NOW()
-         WHERE NOT EXISTS (
-           SELECT 1 FROM contributions 
-           WHERE member_id = ? AND contribution_type = 'monthly' 
-           AND DATE_FORMAT(created_at,'%Y-%m') = ?
-         )`,
-        [member_id, member_id, month]
-      );
-    } else {
-      // Remove contribution
-      await db.promise().query(
-        `DELETE FROM contributions
-         WHERE member_id = ?
-         AND contribution_type = 'monthly'
-         AND DATE_FORMAT(created_at,'%Y-%m') = ?`,
-        [member_id, month]
-      );
-    }
-
-    // Return updated totals
+    // return updated totals (important for dashboards)
     const [monthly] = await db.promise().query(
-      `SELECT SUM(amount) AS total FROM contributions 
-       WHERE member_id = ? AND contribution_type='monthly' AND status='approved'`,
+      `SELECT SUM(amount) AS total
+       FROM contributions
+       WHERE member_id = ?
+       AND contribution_type='monthly'
+       AND status='approved'`,
       [member_id]
     );
+
     const [emergency] = await db.promise().query(
-      `SELECT SUM(amount) AS total FROM contributions 
-       WHERE member_id = ? AND contribution_type='emergency' AND status='approved'`,
+      `SELECT SUM(amount) AS total
+       FROM contributions
+       WHERE member_id = ?
+       AND contribution_type='emergency'
+       AND status='approved'`,
       [member_id]
     );
 
@@ -340,70 +295,120 @@ app.post("/toggle-monthly", async (req, res) => {
       monthly_total: monthly[0].total || 0,
       emergency_total: emergency[0].total || 0
     });
+
   } catch (err) {
-    console.error("Toggle monthly error:", err);
-    res.status(500).json({ error: "Failed to toggle monthly contribution" });
+    console.error("Add emergency error:", err);
+    res.status(500).json({ error: "Failed to add emergency contribution" });
   }
+
 });
 
-// ===== ADD EMERGENCY (RETURN UPDATED TOTALS) =====
-app.post("/add-emergency", async (req, res) => {
-  const { member_id, amount } = req.body;
-  if (!member_id || !amount) return res.status(400).json({ error: "member_id and amount required" });
+
+// ===== ADD MEMBER =====
+app.post("/add-member", async (req, res) => {
+
+  const { full_name, phone, pin, is_admin } = req.body;
 
   try {
+
+    const hashedPin = await bcrypt.hash(pin || "0000", 10);
+
     await db.promise().query(
-      `INSERT INTO contributions (member_id, amount, contribution_type, transaction_code, payment_method, status, created_at)
-       VALUES (?, ?, 'emergency', 'admin', 'admin', 'approved', NOW())`,
-      [member_id, amount]
+      `INSERT INTO members (full_name, phone, pin, approved, is_admin)
+       VALUES (?,?,?,?,?)`,
+      [full_name, phone, hashedPin, 1, is_admin ? 1 : 0]
     );
 
-    // Return updated totals
-    const [monthly] = await db.promise().query(
-      `SELECT SUM(amount) AS total FROM contributions 
-       WHERE member_id = ? AND contribution_type='monthly' AND status='approved'`,
-      [member_id]
-    );
-    const [emergency] = await db.promise().query(
-      `SELECT SUM(amount) AS total FROM contributions 
-       WHERE member_id = ? AND contribution_type='emergency' AND status='approved'`,
-      [member_id]
-    );
+    res.json({ message: "Member added" });
 
-    res.json({
-      success: true,
-      monthly_total: monthly[0].total || 0,
-      emergency_total: emergency[0].total || 0
-    });
   } catch (err) {
-    console.error("Add emergency error:", err);
-    res.status(500).json({ error: "Failed to add emergency contribution" });
+    res.status(500).json({ error: err.message });
   }
+
 });
+
+
+// ===== UPDATE MEMBER =====
+app.put("/update-member/:id", async (req, res) => {
+
+  const { full_name, phone, is_admin } = req.body;
+
+  try {
+
+    await db.promise().query(
+      `UPDATE members
+       SET full_name=?, phone=?, is_admin=?
+       WHERE id=?`,
+      [full_name, phone, is_admin ? 1 : 0, req.params.id]
+    );
+
+    res.json({ message: "Member updated" });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+
+});
+
+
+// ===== DELETE MEMBER =====
+app.delete("/delete-member/:id", async (req, res) => {
+
+  try {
+
+    await db.promise().query(
+      "DELETE FROM members WHERE id=?",
+      [req.params.id]
+    );
+
+    res.json({ message: "Member deleted" });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+
+});
+
 
 // ===== ANNOUNCEMENTS =====
 app.get("/announcements", async (req, res) => {
+
   try {
+
     const [rows] = await db.promise().query(
       "SELECT * FROM announcements ORDER BY id DESC"
     );
+
     res.json(rows);
+
   } catch (err) {
+
     res.json([]);
+
   }
+
 });
+
 
 // ===== HEALTH CONTENT =====
 app.get("/health-contents", async (req, res) => {
+
   try {
+
     const [rows] = await db.promise().query(
       "SELECT * FROM health_contents ORDER BY id DESC"
     );
+
     res.json(rows);
+
   } catch (err) {
+
     res.json([]);
+
   }
+
 });
+
 
 // ===== START SERVER =====
 const PORT = process.env.PORT || 3000;
