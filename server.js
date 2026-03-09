@@ -256,51 +256,46 @@ app.post("/add-emergency", async (req, res) => {
 
   const { member_id, amount } = req.body;
 
-  if (!member_id || !amount) {
-    return res.status(400).json({ error: "member_id and amount required" });
+  if (!member_id || !amount || amount <= 0) {
+    return res.status(400).json({ error: "member_id and positive amount required" });
   }
 
   try {
-
     const transaction_code = `admin-emergency-${Date.now()}`;
 
+    // Corrected INSERT: 7 columns, 7 values
     await db.promise().query(
       `INSERT INTO contributions
        (member_id, amount, contribution_type, transaction_code, payment_method, status, created_at)
-       VALUES (?, ?, 'emergency', ?, 'admin', 'admin', 'approved', NOW())`,
+       VALUES (?, ?, 'emergency', ?, 'admin', 'approved', NOW())`,
       [member_id, amount, transaction_code]
     );
 
-    // return updated totals (important for dashboards)
+    // Return updated totals
     const [monthly] = await db.promise().query(
-      `SELECT SUM(amount) AS total
+      `SELECT IFNULL(SUM(amount),0) AS total
        FROM contributions
-       WHERE member_id = ?
-       AND contribution_type='monthly'
-       AND status='approved'`,
+       WHERE member_id=? AND contribution_type='monthly' AND status='approved'`,
       [member_id]
     );
 
     const [emergency] = await db.promise().query(
-      `SELECT SUM(amount) AS total
+      `SELECT IFNULL(SUM(amount),0) AS total
        FROM contributions
-       WHERE member_id = ?
-       AND contribution_type='emergency'
-       AND status='approved'`,
+       WHERE member_id=? AND contribution_type='emergency' AND status='approved'`,
       [member_id]
     );
 
     res.json({
       success: true,
-      monthly_total: monthly[0].total || 0,
-      emergency_total: emergency[0].total || 0
+      monthly_total: monthly[0].total,
+      emergency_total: emergency[0].total
     });
 
   } catch (err) {
     console.error("Add emergency error:", err);
     res.status(500).json({ error: "Failed to add emergency contribution" });
   }
-
 });
 
 
